@@ -3,6 +3,8 @@ package grpc
 
 import (
 	"crypto/tls"
+	"net"
+	"time"
 
 	"github.com/micro/go-micro/client"
 	"golang.org/x/net/context"
@@ -11,6 +13,7 @@ import (
 
 type codecsKey struct{}
 type tlsAuth struct{}
+type dialerKey struct{}
 
 // gRPC Codec to be used to encode/decode requests for a given content type
 func Codec(contentType string, c grpc.Codec) client.Option {
@@ -35,4 +38,19 @@ func AuthTLS(t *tls.Config) client.Option {
 		}
 		o.Context = context.WithValue(o.Context, tlsAuth{}, t)
 	}
+}
+
+func Dialer(d func(addr string, timeout time.Duration) (net.Conn, error)) client.Option {
+	return func(o *client.Options) {
+		if o.Context == nil {
+			o.Context = context.Background()
+		}
+		o.Context = context.WithValue(o.Context, dialerKey{}, d)
+	}
+}
+
+func ProxyDialer(proxyAddr string) client.Option {
+	return Dialer(func(addr string, timeout time.Duration) (net.Conn, error) {
+		return net.DialTimeout("tcp", proxyAddr, timeout)
+	})
 }

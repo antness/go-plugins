@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	errs "errors"
 	"fmt"
+	"net"
 	"sync"
 	"time"
 
@@ -31,6 +32,7 @@ type grpcClient struct {
 	opts           client.Options
 	pool           *pool
 	securityOption grpc.DialOption
+	dialerOption   grpc.DialOption
 }
 
 var (
@@ -64,7 +66,12 @@ func (g *grpcClient) call(ctx context.Context, address string, req client.Reques
 
 	var grr error
 
-	cc, err := g.pool.getConn(address, grpc.WithCodec(cf), grpc.WithTimeout(opts.DialTimeout), g.securityOption)
+	connOpts := []grpc.DialOption{grpc.WithCodec(cf), grpc.WithTimeout(opts.DialTimeout), g.securityOption}
+	if g.dialerOption != nil {
+		connOpts = append(connOpts, g.dialerOption)
+	}
+
+	cc, err := g.pool.getConn(address, connOpts...)
 	if err != nil {
 		return errors.InternalServerError("go.micro.client", fmt.Sprintf("Error sending request: %v", err))
 	}
@@ -487,6 +494,7 @@ func newClient(opts ...client.Option) client.Client {
 	}
 
 	rc.setSecurityOption()
+	rc.setDialerOption()
 
 	c := client.Client(rc)
 
@@ -509,6 +517,16 @@ func (g *grpcClient) setSecurityOption() {
 		}
 	}
 	g.securityOption = grpc.WithInsecure()
+}
+
+func (g *grpcClient) setDialerOption() {
+	if g.opts.Context != nil {
+		if v := g.opts.Context.Value(dialerKey{}); v != nil {
+			dialerFunc := v.(func(string, time.Duration) (net.Conn, error))
+			g.dialerOption = grpc.WithDialer(dialerFunc)
+			return
+		}
+	}
 }
 
 func NewClient(opts ...client.Option) client.Client {
